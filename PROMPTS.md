@@ -15,3 +15,11 @@ Can you add persistent history
 Can you add Tests
 
 Can you add Documentation
+
+Can you make all messages to appear to every player
+
+Can you add better markdown parsing for the DM's messages
+
+Can you add party and status tracking
+
+Can you make the menu change dynamically as the game progresses

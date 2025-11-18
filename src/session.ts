@@ -198,14 +198,21 @@ export class DungeonMasterService {
   private systemPrompt(): string {
     return [
       "You are the Dungeon Master for a Dungeons & Dragons game.",
-      "Use official D&D 5e rules as guidance (Player’s Handbook, Dungeon Master’s Guide, Monster Manual).",
+      "Use official D&D 5e rules as guidance (Player's Handbook, Dungeon Master's Guide, Monster Manual).",
       "Narrate vividly but concisely, respecting turn order and mechanics. Keep it short, no more than 5 paragraphs.",
       "Simulate dice rolls using standard notation (d20, 2d6+3).",
       "Show reasoning and rolls inside <thinking> ... </thinking>.",
-      "Final response must include clear outcomes: hit/miss, damage, conditions, or consequences. Give all stats in brackets",
-      "Do not alter player stats directly; only describe narrative outcomes.",
+      "CRITICAL: When a character takes damage, always use the exact phrase '[Character Name] takes [X] damage' or '[Character Name] suffers [X] damage' to ensure HP tracking works properly.",
+      "CRITICAL: When a character heals, always use phrases like '[Character Name] heals [X] HP' or '[Character Name] recovers [X] health'.",
+      "CRITICAL: When a character gains items, use phrases like '[Character Name] finds a sword' or '[Character Name] receives a potion' to track inventory.",
+      "CRITICAL: When a character uses items, use phrases like '[Character Name] uses a potion' or '[Character Name] drinks a healing potion'.",
+      "Final response must include clear outcomes: hit/miss, damage, conditions, or consequences. Always specify exact damage numbers.",
+      "Include item discoveries, loot, and inventory changes in your narration using the phrases above.",
+      "Do not alter player stats directly; only describe narrative outcomes with precise damage amounts and item interactions.",
       "Encourage creativity and roleplay while keeping rules consistent with D&D 5e.",
       "Respond in markdown format for rich text rendering.",
+      "Structure your responses with titles and subtitles using markdown headers (# Title, ## Subtitle) to organize your narration into clear sections.",
+      "Use titles to indicate major scene changes, locations, or story beats. Use subtitles for specific actions, combat rounds, or character interactions.",
       "Avoid using <thinking> tags if there is no internal reasoning to show.",
     ].join(" ");
   }
@@ -246,6 +253,8 @@ export class EffectResolver {
   apply(dmText: string, players: Map<string, Player>, combat: CombatState) {
     this.applyEnemyDamage(dmText, combat);
     this.applyPlayerDamage(dmText, players);
+    this.applyPlayerHealing(dmText, players);
+    this.applyInventoryChanges(dmText, players);
   }
 
   private applyEnemyDamage(text: string, combat: CombatState) {
@@ -262,14 +271,154 @@ export class EffectResolver {
   }
 
   private applyPlayerDamage(text: string, players: Map<string, Player>) {
-    // Match phrases like "Thia takes 3 damage" and apply to the mapped player.
-    const matches = text.matchAll(/([A-Za-z ']+)\s+takes\s+(\d+)\s+damage/gi);
-    for (const match of matches) {
-      const name = match[1]?.trim().toLowerCase();
-      const dmg = parseInt(match[2], 10);
-      const player = Array.from(players.values()).find(p => p.name.toLowerCase() === name);
-      if (player && Number.isFinite(dmg)) {
-        player.hp = Math.max(0, player.hp - dmg);
+    // Enhanced patterns to match various damage descriptions
+    const damagePatterns = [
+      // "Thia takes 3 damage"
+      /([A-Za-z][A-Za-z ']*?)\s+takes?\s+(\d+)\s+(?:points?\s+of\s+)?damage/gi,
+      // "3 damage to Thia"
+      /(\d+)\s+(?:points?\s+of\s+)?damage\s+to\s+([A-Za-z][A-Za-z ']*)/gi,
+      // "Thia suffers 3 damage"
+      /([A-Za-z][A-Za-z ']*?)\s+suffers?\s+(\d+)\s+(?:points?\s+of\s+)?damage/gi,
+      // "Thia loses 3 HP"
+      /([A-Za-z][A-Za-z ']*?)\s+loses?\s+(\d+)\s+(?:hit\s+points?|hp)/gi,
+    ];
+
+    for (const pattern of damagePatterns) {
+      const matches = text.matchAll(pattern);
+      for (const match of matches) {
+        let name: string, dmg: number;
+        
+        if (pattern.source.startsWith('(\\d+)')) {
+          // Pattern: "3 damage to Thia"
+          dmg = parseInt(match[1], 10);
+          name = match[2]?.trim().toLowerCase();
+        } else {
+          // Pattern: "Thia takes 3 damage"
+          name = match[1]?.trim().toLowerCase();
+          dmg = parseInt(match[2], 10);
+        }
+        
+        const player = Array.from(players.values()).find(p => p.name.toLowerCase() === name);
+        if (player && Number.isFinite(dmg) && dmg > 0) {
+          const oldHp = player.hp;
+          player.hp = Math.max(0, player.hp - dmg);
+          if (IS_LOCAL_DEV) {
+            console.log(`[Damage Applied] ${player.name}: ${oldHp} → ${player.hp} (took ${dmg} damage)`);
+          }
+        }
+      }
+    }
+  }
+
+  private applyPlayerHealing(text: string, players: Map<string, Player>) {
+    // Enhanced patterns to match various healing descriptions
+    const healingPatterns = [
+      // "Thia heals 3 HP"
+      /([A-Za-z][A-Za-z ']*?)\s+heals?\s+(\d+)\s+(?:hit\s+points?|hp)/gi,
+      // "Thia recovers 3 damage"
+      /([A-Za-z][A-Za-z ']*?)\s+recovers?\s+(\d+)\s+(?:points?\s+of\s+)?(?:damage|health|hp)/gi,
+      // "Thia gains 3 HP"
+      /([A-Za-z][A-Za-z ']*?)\s+gains?\s+(\d+)\s+(?:hit\s+points?|hp|health)/gi,
+      // "3 HP restored to Thia"
+      /(\d+)\s+(?:hit\s+points?|hp|health)\s+(?:restored|healed)\s+to\s+([A-Za-z][A-Za-z ']*)/gi,
+    ];
+
+    for (const pattern of healingPatterns) {
+      const matches = text.matchAll(pattern);
+      for (const match of matches) {
+        let name: string, heal: number;
+        
+        if (pattern.source.startsWith('(\\d+)')) {
+          // Pattern: "3 HP restored to Thia"
+          heal = parseInt(match[1], 10);
+          name = match[2]?.trim().toLowerCase();
+        } else {
+          // Pattern: "Thia heals 3 HP"
+          name = match[1]?.trim().toLowerCase();
+          heal = parseInt(match[2], 10);
+        }
+        
+        const player = Array.from(players.values()).find(p => p.name.toLowerCase() === name);
+        if (player && Number.isFinite(heal) && heal > 0) {
+          const oldHp = player.hp;
+          const maxHp = 20; // Default max HP
+          player.hp = Math.min(maxHp, player.hp + heal);
+          if (IS_LOCAL_DEV) {
+            console.log(`[Healing Applied] ${player.name}: ${oldHp} → ${player.hp} (healed ${heal} HP)`);
+          }
+        }
+      }
+    }
+  }
+
+  private applyInventoryChanges(text: string, players: Map<string, Player>) {
+    // Patterns to detect when players gain items
+    const gainItemPatterns = [
+      // "Thia finds a sword"
+      /([A-Za-z][A-Za-z ']*?)\s+(?:finds?|discovers?|picks?\s+up|obtains?)\s+(?:a|an|the)\s+([A-Za-z][A-Za-z '\-]*)/gi,
+      // "Thia receives a potion"
+      /([A-Za-z][A-Za-z ']*?)\s+(?:receives?|gets?|gains?)\s+(?:a|an|the)\s+([A-Za-z][A-Za-z '\-]*)/gi,
+      // "You give Thia a dagger"
+      /(?:give|hand)\s+([A-Za-z][A-Za-z ']*?)\s+(?:a|an|the)\s+([A-Za-z][A-Za-z '\-]*)/gi,
+      // "Thia loots a gem"
+      /([A-Za-z][A-Za-z ']*?)\s+(?:loots?|takes?)\s+(?:a|an|the)\s+([A-Za-z][A-Za-z '\-]*)/gi,
+    ];
+
+    for (const pattern of gainItemPatterns) {
+      const matches = text.matchAll(pattern);
+      for (const match of matches) {
+        const playerName = match[1]?.trim().toLowerCase();
+        let itemName = match[2]?.trim();
+        
+        // Skip if item name looks like a place or action
+        if (!itemName || itemName.length < 2 || /\b(room|door|way|path|area|place|time|chance)\b/i.test(itemName)) {
+          continue;
+        }
+        
+        const player = Array.from(players.values()).find(p => p.name.toLowerCase() === playerName);
+        if (player && itemName) {
+          // Clean up item name
+          itemName = itemName.toLowerCase().replace(/[^a-z\s\-]/g, '').trim();
+          
+          // Don't add duplicate items
+          if (!player.inventory.includes(itemName)) {
+            player.inventory.push(itemName);
+            if (IS_LOCAL_DEV) {
+              console.log(`[Item Added] ${player.name} gained: ${itemName}`);
+            }
+          }
+        }
+      }
+    }
+
+    // Patterns to detect when players lose/use items
+    const loseItemPatterns = [
+      // "Thia uses a potion"
+      /([A-Za-z][A-Za-z ']*?)\s+(?:uses?|consumes?|drinks?)\s+(?:a|an|the|their)\s+([A-Za-z][A-Za-z '\-]*)/gi,
+      // "Thia drops the sword"
+      /([A-Za-z][A-Za-z ']*?)\s+(?:drops?|loses?|discards?)\s+(?:a|an|the|their)\s+([A-Za-z][A-Za-z '\-]*)/gi,
+    ];
+
+    for (const pattern of loseItemPatterns) {
+      const matches = text.matchAll(pattern);
+      for (const match of matches) {
+        const playerName = match[1]?.trim().toLowerCase();
+        let itemName = match[2]?.trim().toLowerCase();
+        
+        if (itemName && playerName) {
+          itemName = itemName.replace(/[^a-z\s\-]/g, '').trim();
+          
+          const player = Array.from(players.values()).find(p => p.name.toLowerCase() === playerName);
+          if (player) {
+            const itemIndex = player.inventory.findIndex(item => item.includes(itemName));
+            if (itemIndex !== -1) {
+              const removedItem = player.inventory.splice(itemIndex, 1)[0];
+              if (IS_LOCAL_DEV) {
+                console.log(`[Item Removed] ${player.name} lost: ${removedItem}`);
+              }
+            }
+          }
+        }
       }
     }
   }
@@ -389,8 +538,9 @@ export class SessionCoordinator {
 
     if (!this.players.has(playerId)) {
       // First time we see the player: seed stats and announce their arrival.
-      this.players.set(playerId, { id: playerId, name, hp: 20, inventory: [] });
-      this.messages.push({ actor: "DM", content: `${name} enters the campaign.`, ts: Date.now() });
+      const starterInventory = ['basic sword', 'leather armor', 'health potion'];
+      this.players.set(playerId, { id: playerId, name, hp: 20, inventory: starterInventory });
+      this.messages.push({ actor: "DM", content: `${name} enters the campaign with basic equipment.`, ts: Date.now() });
     } else {
       const existing = this.players.get(playerId)!;
       if (existing.name !== name) {
@@ -465,8 +615,19 @@ export class SessionCoordinator {
 
     const narration = await this.dm.narrate(context, player, playerAction);
     if (!narration.degraded) {
+      // Log player states before damage application
+      if (IS_LOCAL_DEV) {
+        console.log('[Pre-damage] Player states:', this.getPlayers().map(p => `${p.name}: ${p.hp}HP`));
+        console.log('[DM Response]:', narration.text);
+      }
+      
       // Only mutate HP totals if the AI response is trustworthy.
       this.effects.apply(narration.text, this.players, this.combat);
+      
+      // Log player states after damage application
+      if (IS_LOCAL_DEV) {
+        console.log('[Post-damage] Player states:', this.getPlayers().map(p => `${p.name}: ${p.hp}HP`));
+      }
     }
 
     this.messages.push({ actor: player.name, content: playerAction, ts: Date.now() });

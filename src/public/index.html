@@ -1,10 +1,12 @@
 <!doctype html>
 <html>
+
 <head>
   <meta charset="utf-8" />
   <title>D&D AI</title>
   <link rel="stylesheet" href="./styles.css" />
 </head>
+
 <body>
   <h1>D&D AI</h1>
   <h2 id="currentSession"></h2>
@@ -18,18 +20,40 @@
         </div>
       </label>
       <label>Player: <select id="playerSelect"></select></label>
-      <label>Name: <input id="name" required/></label>
+      <label>Name: <input id="name" required /></label>
       <button id="join">Join</button>
     </div>
 
-    <div id="log"></div>
+    <div class="game-layout">
+      <div id="log"></div>
+
+      <div id="characterPanel" class="character-panel">
+        <div class="panel-header">
+          <h3>⚔️ Party & Combat Status</h3>
+          <button id="toggleCharPanel" class="toggle-btn" aria-label="Collapse panel"
+            title="Toggle character panel">−</button>
+        </div>
+        <div class="panel-content">
+          <div class="party-section">
+            <h4>🏛️ Party Members</h4>
+            <div id="characterInfo"></div>
+          </div>
+          <div class="combat-section">
+            <h4>⚔️ Combat Information</h4>
+            <div id="combatInfo"></div>
+          </div>
+        </div>
+      </div>
+    </div>
 
     <div class="action-section">
-      <input id="action" placeholder="Your action (e.g., I attack the goblin)"/>
+      <input id="action" placeholder="Your action (e.g., I attack the goblin)" />
       <button id="send">Send</button>
     </div>
-    <p class="help-text">Type 'end' to end the story. Try `stats` and `look`. 🧝‍♂️ Send the link and Story Session name to your friends to join.</p>
+    <p class="help-text">Type 'end' to end the story. Try `stats`, `look`, and `inventory`. 🧝‍♂️ Send the link and
+      Story Session name to your friends to join.</p>
 
     <script src="./script.js"></script>
-  </body>
+</body>
+
 </html>

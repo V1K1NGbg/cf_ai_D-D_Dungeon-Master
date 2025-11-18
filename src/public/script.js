@@ -15,6 +15,9 @@ const currentSessionEl = document.getElementById('currentSession');
 const IS_LOCAL_HOST = location.hostname === 'localhost' || location.hostname === '127.0.0.1';
 let currentPlayerId = '';
 let currentPlayerName = '';
+let currentSessionId = '';
+let lastMessageCount = 0;
+let pollingInterval = null;
 
 // Hydrate the session select dropdown from the registry endpoint.
 async function loadSessions() {
@@ -77,29 +80,117 @@ function clearLog() {
 }
 
 function showJoinPrompt() {
+  console.log('🚪 showJoinPrompt called - hiding game UI');
+
+  // Remove game-active class
+  document.body.classList.remove('game-active');
+
   document.querySelector('.join-section').style.display = 'block';
   document.querySelector('.action-section').style.display = 'none';
   document.querySelector('.help-text').style.display = 'none';
+
+  const characterPanel = document.getElementById('characterPanel');
+  if (characterPanel) {
+    characterPanel.style.display = 'none';
+    console.log('🙈 Character panel hidden');
+  }
+
   currentPlayerId = '';
   currentPlayerName = '';
+  currentSessionId = '';
   actionEl.value = '';
+  stopPolling();
 }
 
 function enableChat() {
+  console.log('🎮 enableChat called - showing game UI');
+
+  // Add game-active class to body for CSS control
+  document.body.classList.add('game-active');
+
+  // Also set display directly for immediate effect
   document.querySelector('.join-section').style.display = 'none';
   document.getElementById('log').style.display = 'block';
   document.querySelector('.action-section').style.display = 'flex';
   document.querySelector('.help-text').style.display = 'block';
+
+  const characterPanel = document.getElementById('characterPanel');
+  if (characterPanel) {
+    characterPanel.style.display = 'flex';
+    console.log('✅ Character panel set to display: flex');
+  } else {
+    console.error('❌ Character panel element not found!');
+  }
+
+  startPolling();
+
+  // Force initial update
+  setTimeout(() => {
+    console.log('🔄 Calling initial updateCharacterPanel...');
+    updateCharacterPanel();
+  }, 100);
+}
+
+function startPolling() {
+  // Clear any existing polling interval
+  if (pollingInterval) {
+    clearInterval(pollingInterval);
+  }
+
+  // Poll for updates every 2 seconds for more responsive character panel updates
+  pollingInterval = setInterval(async () => {
+    if (!currentSessionId) {
+      console.log('⏸️ Polling skipped - no current session');
+      return;
+    }
+
+    console.log('🔄 Polling for updates...');
+    try {
+      const res = await fetch(`/api/session/state?sessionId=${encodeURIComponent(currentSessionId)}`);
+      console.log('📡 Polling response status:', res.status);
+
+      if (res.ok) {
+        const data = await res.json();
+        console.log('📊 Polling data received:', data);
+
+        if (data.messages && data.messages.length > lastMessageCount) {
+          console.log('💬 New messages detected:', data.messages.length - lastMessageCount);
+          // New messages available - only add the new ones to avoid duplicates
+          const newMessages = data.messages.slice(lastMessageCount);
+          newMessages.forEach(msg => {
+            addMsg(msg.actor, msg.content);
+          });
+          lastMessageCount = data.messages.length;
+        }
+        // Always update character panel with latest data
+        console.log('🔄 Calling updateCharacterPanel from polling...');
+        updateCharacterPanel(data.players, data.combat);
+      } else {
+        console.error('❌ Polling failed with status:', res.status);
+      }
+    } catch (e) {
+      console.error('❌ Polling error:', e);
+    }
+  }, 2000);
+}
+
+function stopPolling() {
+  if (pollingInterval) {
+    clearInterval(pollingInterval);
+    pollingInterval = null;
+  }
 }
 
 function hydrateMessages(messages = []) {
   clearLog();
   messages.forEach(msg => addMsg(msg.actor, msg.content));
+  lastMessageCount = messages.length;
 }
 
 // Lightweight UI reset used whenever a session ends or is cleared.
 async function resetAppToInitialState(finalMessage = 'The adventure has concluded. Returning to the lobby...') {
   try {
+    stopPolling();
     clearLog();
     if (finalMessage) {
       addMsg('DM', finalMessage);
@@ -109,6 +200,8 @@ async function resetAppToInitialState(finalMessage = 'The adventure has conclude
     document.getElementById('log').style.display = 'block';
     currentPlayerId = '';
     currentPlayerName = '';
+    currentSessionId = '';
+    lastMessageCount = 0;
     actionEl.value = '';
     currentSessionEl.textContent = '';
     await loadSessions();
@@ -182,7 +275,7 @@ async function clearAllSessions() {
 function markdownToHtml(text) {
   const fragment = document.createDocumentFragment();
 
-  // Split by lines to handle paragraphs and lists
+  // Split by lines to handle paragraphs, lists, and headers
   const lines = text.split('\n');
   let currentParagraph = null;
   let inList = false;
@@ -202,6 +295,48 @@ function markdownToHtml(text) {
         listElement = null;
         inList = false;
       }
+      continue;
+    }
+
+    // Check for headers (# and ##)
+    const h1Match = line.match(/^#\s+(.*)$/);
+    const h2Match = line.match(/^##\s+(.*)$/);
+
+    if (h1Match) {
+      // Close any open elements
+      if (currentParagraph) {
+        fragment.appendChild(currentParagraph);
+        currentParagraph = null;
+      }
+      if (inList) {
+        fragment.appendChild(listElement);
+        listElement = null;
+        inList = false;
+      }
+
+      const h1 = document.createElement('h1');
+      h1.className = 'dm-title';
+      h1.innerHTML = inlineMarkdown(h1Match[1]);
+      fragment.appendChild(h1);
+      continue;
+    }
+
+    if (h2Match) {
+      // Close any open elements
+      if (currentParagraph) {
+        fragment.appendChild(currentParagraph);
+        currentParagraph = null;
+      }
+      if (inList) {
+        fragment.appendChild(listElement);
+        listElement = null;
+        inList = false;
+      }
+
+      const h2 = document.createElement('h2');
+      h2.className = 'dm-subtitle';
+      h2.innerHTML = inlineMarkdown(h2Match[1]);
+      fragment.appendChild(h2);
       continue;
     }
 
@@ -247,8 +382,8 @@ function markdownToHtml(text) {
 function inlineMarkdown(text) {
   // Escape HTML first
   text = text.replace(/&/g, '&amp;')
-             .replace(/</g, '&lt;')
-             .replace(/>/g, '&gt;');
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
 
   // Bold: **text** or __text__
   text = text.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
@@ -324,6 +459,8 @@ async function join() {
     body: JSON.stringify({ sessionId, playerId, name }),
   });
   const data = await res.json();
+  console.log('🎮 Join response data:', data);
+
   if (data.messages) {
     hydrateMessages(data.messages);
   } else {
@@ -335,11 +472,15 @@ async function join() {
   await loadPlayers();
   playerSelectEl.value = playerId;
   currentPlayerId = playerId;
+  currentSessionId = sessionId;
   const joinedPlayer = data.players.find(p => p.id === playerId);
   currentPlayerName = joinedPlayer ? joinedPlayer.name : name;
   // Hide join, show chat
   enableChat();
   currentSessionEl.textContent = `Session: ${sessionId}`;
+  // Update character panel with initial data
+  console.log('🔄 Calling updateCharacterPanel from join...');
+  updateCharacterPanel(data.players, data.combat);
   // Scroll to bottom after showing
   log.scrollTop = log.scrollHeight;
 }
@@ -364,9 +505,11 @@ async function sendAction() {
 
   // Add player message
   addMsg(playerName, playerAction);
+  lastMessageCount++; // Account for the player message we just added
 
   // Add pulsating DM placeholder
   const dmPlaceholder = addMsg('DM', '✨', '', true);
+  lastMessageCount++; // Account for the placeholder DM message
 
   let skipActionFocus = false;
   try {
@@ -381,7 +524,7 @@ async function sendAction() {
       try {
         const parsed = JSON.parse(errorText);
         parsedMessage = parsed.error || parsedMessage;
-      } catch (_) {}
+      } catch (_) { }
       const err = new Error(parsedMessage || `Action failed with status ${res.status}`);
       err.name = 'ActionError';
       throw err;
@@ -399,6 +542,19 @@ async function sendAction() {
       label.textContent = 'DM: ';
       dmPlaceholder.appendChild(label);
       dmPlaceholder.appendChild(renderDmContent(data.result ?? 'The DM is thinking...', data.thinking || ''));
+
+      // Update character panel with latest state
+      if (data.state && data.state.players) {
+        console.log('🔄 Calling updateCharacterPanel from sendAction...');
+        console.log('🎮 Action response state:', data.state);
+        updateCharacterPanel(data.state.players, data.state.combat);
+      } else {
+        console.warn('⚠️ No state data in action response');
+      }
+
+      // Update the message count to account for the actual DM response
+      // (player action + DM response = +2 to the server's message count)
+      lastMessageCount = (lastMessageCount - 2) + 2; // Reset and add both messages
     }
   } catch (e) {
     if (IS_LOCAL_HOST) {
@@ -432,6 +588,263 @@ async function sendAction() {
   }
 }
 
+// Character panel management
+function updateCharacterPanel(players, combat) {
+  console.log('🔄 updateCharacterPanel called with:', { players, combat });
+
+  const characterInfo = document.getElementById('characterInfo');
+  const combatInfo = document.getElementById('combatInfo');
+
+  if (!characterInfo) {
+    console.error('❌ characterInfo element not found!');
+    return;
+  }
+
+  if (!combatInfo) {
+    console.error('❌ combatInfo element not found!');
+    return;
+  }
+
+  console.log('✅ Character panel elements found, updating...');
+
+  // Debug logging for HP updates
+  if (players) {
+    console.log('👥 Players data:', players.map(p => `${p.name}: ${p.hp}HP, inventory: ${JSON.stringify(p.inventory)}`));
+  }
+
+  // Update character information
+  if (players && players.length > 0) {
+    const htmlContent = players.map(player => {
+      const isCurrentPlayer = player.id === currentPlayerId;
+      // Allow for dynamic max HP, but default to 20
+      const maxHp = player.maxHp || 20;
+      const hpPercentage = Math.max(0, Math.min(100, (player.hp / maxHp) * 100));
+      const playerIcon = isCurrentPlayer ? '👤' : '🧙‍♂️';
+      const hpColor = hpPercentage > 60 ? '#44ff44' : hpPercentage > 30 ? '#ffaa44' : '#ff4444';
+
+      console.log(`📊 ${player.name} stats:`, { hp: player.hp, maxHp, hpPercentage, inventory: player.inventory });
+
+      return `
+        <div class="character-card ${isCurrentPlayer ? 'current-player' : ''}">
+          <div class="character-name">
+            ${playerIcon} ${player.name}${isCurrentPlayer ? ' (You)' : ''}
+          </div>
+          <div class="character-stats">
+            <div class="stat-row">
+              <span class="stat-label">❤️ Health:</span>
+              <span class="stat-value" style="color: ${hpColor}">${player.hp}/${maxHp}</span>
+            </div>
+            <div class="hp-container">
+              <div class="hp-bar">
+                <div class="hp-fill" style="width: ${hpPercentage}%; background: linear-gradient(90deg, ${hpColor}, ${hpColor})"></div>
+              </div>
+            </div>
+            <div class="inventory">
+              <div class="inventory-title">🎒 Inventory ${player.inventory && player.inventory.length > 0 ? `(${player.inventory.length})` : ''}:</div>
+              <div class="inventory-items">${player.inventory && player.inventory.length > 0 ? player.inventory.join(', ') : 'Empty'}</div>
+            </div>
+          </div>
+        </div>
+      `;
+    }).join('');
+
+    console.log('🔧 Setting characterInfo HTML:', htmlContent.substring(0, 200) + '...');
+    characterInfo.innerHTML = htmlContent;
+  } else {
+    console.log('👥 No players data, showing empty state');
+    characterInfo.innerHTML = '<div style="text-align: center; color: #888; padding: 20px;">🏛️ No party members in session</div>';
+  }
+
+  // Update combat information
+  if (combat) {
+    console.log('⚔️ Combat data:', combat);
+    if (combat.active && combat.enemies && combat.enemies.length > 0) {
+      const aliveEnemies = combat.enemies.filter(e => e.hp > 0);
+      const deadEnemies = combat.enemies.filter(e => e.hp <= 0);
+
+      combatInfo.innerHTML = `
+        <div class="combat-status combat-active">
+          ⚔️ Combat is Active!
+        </div>
+        ${aliveEnemies.length > 0 ? `
+        <div class="enemy-list">
+          <div style="margin-bottom: 8px; font-weight: bold; color: #d4af37;">👹 Active Enemies:</div>
+          ${aliveEnemies.map(enemy => `
+            <div class="enemy-item">
+              <span class="enemy-name">${enemy.name}</span>
+              <span class="enemy-hp">${enemy.hp} HP</span>
+            </div>
+          `).join('')}
+        </div>
+        ` : ''}
+        ${deadEnemies.length > 0 ? `
+        <div style="margin-top: 10px; padding: 8px; background: rgba(0, 0, 0, 0.2); border-radius: 4px;">
+          <div style="font-size: 0.9rem; color: #888;">💀 Defeated: ${deadEnemies.map(e => e.name).join(', ')}</div>
+        </div>
+        ` : ''}
+        ${combat.turnOrder && combat.turnOrder.length > 0 ? `
+        <div style="margin-top: 15px; padding: 10px; background: rgba(212, 175, 55, 0.1); border-radius: 6px; border: 1px solid #d4af37;">
+          <strong style="color: #d4af37;">🎯 Turn Order:</strong><br>
+          <span style="color: #f4e4bc;">${combat.turnOrder.map((name, index) =>
+        index === combat.currentTurnIndex ? `<strong style="color: #d4af37;">${name}</strong>` : name
+      ).join(' → ')}</span>
+        </div>
+        ` : ''}
+      `;
+    } else {
+      combatInfo.innerHTML = `
+        <div class="combat-status combat-inactive">
+          ✌️ No Active Combat
+        </div>
+        <div style="text-align: center; color: #888; padding: 20px; font-style: italic;">
+          🌲 The party is currently exploring peacefully.
+        </div>
+      `;
+    }
+  } else {
+    console.log('⚔️ No combat data');
+    combatInfo.innerHTML = `
+      <div class="combat-status combat-inactive">
+        ✌️ No Active Combat
+      </div>
+      <div style="text-align: center; color: #888; padding: 20px; font-style: italic;">
+        Waiting for game data...
+      </div>
+    `;
+  }
+
+  console.log('✅ Character panel update completed!');
+}
+
+function toggleCharacterPanel() {
+  const panel = document.getElementById('characterPanel');
+  const toggleBtn = document.getElementById('toggleCharPanel');
+
+  if (!panel || !toggleBtn) {
+    console.error('❌ Panel or toggle button not found!');
+    return;
+  }
+
+  console.log('🔄 Toggling character panel...');
+
+  // Disable button during transition to prevent multiple clicks
+  toggleBtn.style.pointerEvents = 'none';
+
+  if (panel.classList.contains('collapsed')) {
+    console.log('📖 Expanding panel');
+    panel.classList.remove('collapsed');
+
+    // Change button text after a brief delay to sync with width transition
+    setTimeout(() => {
+      toggleBtn.textContent = '−';
+      toggleBtn.setAttribute('aria-label', 'Collapse panel');
+    }, 100);
+
+    // Force update when expanding (after transition completes)
+    setTimeout(() => {
+      forceUpdateCharacterPanel();
+      toggleBtn.style.pointerEvents = 'auto';
+    }, 350);
+  } else {
+    console.log('📕 Collapsing panel');
+
+    // Change button text immediately since we're collapsing
+    toggleBtn.textContent = '+';
+    toggleBtn.setAttribute('aria-label', 'Expand panel');
+
+    // Add collapsed class after button text change
+    setTimeout(() => {
+      panel.classList.add('collapsed');
+    }, 50);
+
+    // Re-enable button after transition
+    setTimeout(() => {
+      toggleBtn.style.pointerEvents = 'auto';
+    }, 350);
+  }
+
+  console.log('✅ Panel toggle initiated, collapsed:', panel.classList.contains('collapsed'));
+}
+
+// Force update character panel by fetching fresh data
+async function forceUpdateCharacterPanel() {
+  if (!currentSessionId) {
+    console.log('⏸️ Force update skipped - no current session');
+    return;
+  }
+
+  console.log('🔄 Force updating character panel...');
+  try {
+    const res = await fetch(`/api/session/state?sessionId=${encodeURIComponent(currentSessionId)}`);
+    if (res.ok) {
+      const data = await res.json();
+      console.log('📊 Force update data:', data);
+      updateCharacterPanel(data.players, data.combat);
+      console.log('✅ Character panel force updated');
+    } else {
+      console.error('❌ Force update failed with status:', res.status);
+    }
+  } catch (e) {
+    console.error('❌ Failed to force update character panel:', e);
+  }
+}
+
+// Add a manual refresh function for testing
+function refreshCharacterPanel() {
+  console.log('🔄 Manual refresh triggered');
+  forceUpdateCharacterPanel();
+}
+
+// Test function to check panel visibility
+function testCharacterPanel() {
+  const panel = document.getElementById('characterPanel');
+  if (!panel) {
+    console.error('❌ Character panel element does not exist!');
+    return false;
+  }
+
+  console.log('🔍 Panel element found:', panel);
+  console.log('📐 Panel computed styles:', window.getComputedStyle(panel));
+  console.log('👁️ Panel display:', window.getComputedStyle(panel).display);
+  console.log('👁️ Panel visibility:', window.getComputedStyle(panel).visibility);
+  console.log('📏 Panel dimensions:', {
+    width: panel.offsetWidth,
+    height: panel.offsetHeight,
+    clientWidth: panel.clientWidth,
+    clientHeight: panel.clientHeight
+  });
+
+  const characterInfo = document.getElementById('characterInfo');
+  const combatInfo = document.getElementById('combatInfo');
+
+  console.log('📋 characterInfo exists:', !!characterInfo);
+  console.log('⚔️ combatInfo exists:', !!combatInfo);
+
+  if (characterInfo) {
+    console.log('📋 characterInfo content:', characterInfo.innerHTML);
+  }
+
+  // Add debug class to make panel super visible
+  panel.classList.add('debug-visible');
+  console.log('🔴 Added debug-visible class to make panel red and prominent');
+
+  // Force update with fake data for testing
+  console.log('🧪 Testing with fake data...');
+  updateCharacterPanel([
+    { id: 'test1', name: 'Test Player', hp: 15, maxHp: 20, inventory: ['sword', 'potion'] }
+  ], { active: false, enemies: [] });
+
+  return true;
+}
+
+// Make test functions available globally
+window.testCharacterPanel = testCharacterPanel;
+window.refreshCharacterPanel = refreshCharacterPanel;
+window.updateCharacterPanel = updateCharacterPanel;
+
+console.log('🧪 Debug functions available: testCharacterPanel(), refreshCharacterPanel(), updateCharacterPanel()');
+console.log('🔧 To test: Type testCharacterPanel() in the console to check panel visibility');
+
 // Initialization and event listeners
 (async () => {
   await loadSessions();
@@ -444,6 +857,7 @@ sessionIdEl.addEventListener('change', () => {
   showJoinPrompt();
   const sessionId = sessionIdEl.value;
   currentSessionEl.textContent = sessionId === 'create-new' ? '' : `Session: ${sessionId}`;
+  lastMessageCount = 0;
 });
 
 clearSessionsBtn.addEventListener('click', () => {
@@ -471,8 +885,16 @@ playerSelectEl.addEventListener('change', () => {
 document.getElementById('join').onclick = join;
 document.getElementById('send').onclick = sendAction;
 
-actionEl.addEventListener('keydown', function(event) {
+actionEl.addEventListener('keydown', function (event) {
   if (event.key === 'Enter') {
     sendAction();
   }
+});
+
+// Character panel toggle
+document.getElementById('toggleCharPanel').addEventListener('click', toggleCharacterPanel);
+
+// Cleanup polling when page is unloaded
+window.addEventListener('beforeunload', () => {
+  stopPolling();
 });

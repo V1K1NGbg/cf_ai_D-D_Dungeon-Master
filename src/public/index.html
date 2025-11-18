@@ -1,0 +1,35 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>D&D AI</title>
+  <link rel="stylesheet" href="./styles.css" />
+</head>
+<body>
+  <h1>D&D AI</h1>
+  <h2 id="currentSession"></h2>
+  <div class="container">
+    <div class="join-section">
+      <label class="session-field">
+        <span>Session:</span>
+        <div class="session-controls">
+          <select id="sessionId"></select>
+          <button id="clearSessions" type="button" class="clear-sessions-button">Clear Sessions</button>
+        </div>
+      </label>
+      <label>Player: <select id="playerSelect"></select></label>
+      <label>Name: <input id="name" required/></label>
+      <button id="join">Join</button>
+    </div>
+
+    <div id="log"></div>
+
+    <div class="action-section">
+      <input id="action" placeholder="Your action (e.g., I attack the goblin)"/>
+      <button id="send">Send</button>
+    </div>
+    <p class="help-text">Type 'end' to end the story. Try `stats` and `look`. 🧝‍♂️ Send the link and Story Session name to your friends to join.</p>
+
+    <script src="./script.js"></script>
+  </body>
+</html>

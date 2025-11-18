@@ -1,0 +1,244 @@
+body {
+  font-family: 'Georgia', serif;
+  background: linear-gradient(135deg, #2c1810 0%, #1a0f0a 100%);
+  color: #f4e4bc;
+  margin: 0;
+  padding: 20px;
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+h1 {
+  font-size: 3rem;
+  color: #d4af37;
+  text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.5);
+  margin-bottom: 30px;
+  text-align: center;
+  font-weight: bold;
+}
+
+.container {
+  max-width: 900px;
+  width: 100%;
+}
+
+.join-section {
+  background: rgba(0, 0, 0, 0.3);
+  border: 2px solid #8b4513;
+  border-radius: 10px;
+  padding: 20px;
+  margin-bottom: 20px;
+  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.3);
+}
+
+.join-section label {
+  display: block;
+  margin-bottom: 10px;
+  font-weight: bold;
+  color: #f4e4bc;
+}
+
+.session-field span {
+  display: block;
+  margin-bottom: 8px;
+}
+
+.session-controls {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+}
+
+.session-controls select {
+  flex: 1;
+  width: 100%;
+}
+
+.clear-sessions-button {
+  white-space: nowrap;
+  background: #7a1f1f;
+  color: #f4e4bc;
+}
+
+.clear-sessions-button:hover {
+  background: #601717;
+}
+
+.join-section select {
+  width: calc(100% - 20px);
+  padding: 10px;
+  margin-bottom: 10px;
+  border: 1px solid #8b4513;
+  border-radius: 5px;
+  background: #3a2b1f;
+  color: #f4e4bc;
+  font-size: 1rem;
+}
+
+.join-section input {
+  width: calc(100% - 20px);
+  padding: 10px;
+  margin-bottom: 10px;
+  border: 1px solid #8b4513;
+  border-radius: 5px;
+  background: #3a2b1f;
+  color: #f4e4bc;
+  font-size: 1rem;
+}
+
+.join-section button {
+  background: #d4af37;
+  color: #2c1810;
+  border: none;
+  padding: 10px 20px;
+  border-radius: 5px;
+  cursor: pointer;
+  font-size: 1rem;
+  font-weight: bold;
+  transition: background 0.3s;
+}
+
+.action-section button:hover {
+  background: #b8860b;
+}
+
+.help-text {
+  margin-top: 10px;
+  font-size: 0.9rem;
+  color: #d4af37;
+  text-align: center;
+}
+
+#log {
+  border: 2px solid #8b4513;
+  padding: 20px;
+  height: 60vh;
+  overflow: auto;
+  background: linear-gradient(135deg, #f4e4bc 0%, #e6d7a3 100%);
+  color: #2c1810;
+  border-radius: 10px;
+  box-shadow: inset 0 0 10px rgba(0, 0, 0, 0.2);
+  font-family: 'Courier New', monospace;
+  font-size: 1rem;
+}
+
+.msg {
+  margin-bottom: 10px;
+  padding: 5px;
+  border-radius: 5px;
+}
+
+.dm {
+  background: rgba(139, 69, 19, 0.1);
+  border-left: 4px solid #8b4513;
+  font-style: italic;
+}
+
+.dm details {
+  margin-bottom: 10px;
+}
+
+.dm summary {
+  cursor: pointer;
+  font-weight: bold;
+  color: #8b4513;
+}
+
+.dm pre {
+  background: rgba(0, 0, 0, 0.1);
+  padding: 10px;
+  border-radius: 5px;
+  white-space: pre-wrap;
+  font-family: 'Courier New', monospace;
+  font-size: 0.9rem;
+}
+
+.dm strong {
+  font-weight: bold;
+  color: #d4af37;
+}
+
+.dm em {
+  font-style: italic;
+  color: #f4e4bc;
+}
+
+.dm code {
+  background: rgba(0, 0, 0, 0.2);
+  padding: 2px 4px;
+  border-radius: 3px;
+  font-family: 'Courier New', monospace;
+  font-size: 0.9em;
+}
+
+.dm ul {
+  margin: 10px 0;
+  padding-left: 20px;
+}
+
+.dm li {
+  margin-bottom: 5px;
+}
+
+.dm p {
+  margin-bottom: 10px;
+}
+
+.dm .pulsating {
+  animation: pulsate 1.5s ease-in-out infinite;
+  background: rgba(0, 0, 0, 0.7);
+  border-radius: 50%;
+  padding: 2px 6px;
+  display: inline-block;
+}
+
+@keyframes pulsate {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
+}
+
+.player {
+  background: rgba(10, 102, 6, 0.1);
+  border-left: 4px solid #0a6600;
+}
+
+.action-section {
+  background: rgba(0, 0, 0, 0.3);
+  border: 2px solid #8b4513;
+  border-radius: 10px;
+  padding: 20px;
+  margin-top: 20px;
+  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.3);
+  display: flex;
+  gap: 10px;
+}
+
+.action-section input {
+  flex: 1;
+  padding: 10px;
+  border: 1px solid #8b4513;
+  border-radius: 5px;
+  background: #3a2b1f;
+  color: #f4e4bc;
+  font-size: 1rem;
+}
+
+.action-section button {
+  background: #d4af37;
+  color: #2c1810;
+  border: none;
+  padding: 10px 20px;
+  border-radius: 5px;
+  cursor: pointer;
+  font-size: 1rem;
+  font-weight: bold;
+  transition: background 0.3s;
+}
+
+#log,
+.action-section,
+.help-text {
+  display: none;
+}

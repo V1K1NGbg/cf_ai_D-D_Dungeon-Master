@@ -6,6 +6,11 @@ This project is a **Cloudflare Workers AI application** that hosts a multiplayer
 An AI Dungeon Master (DM) powered by **Llama 3.3 on Workers AI** narrates adventures, resolves dice rolls, and manages combat.  
 Players join sessions via a simple **chat interface (Cloudflare Pages)**, and the game state is persisted using **Durable Objects**.
 
+<div align="center">
+  <img src="imgs/Screenshot_D&D_AI1.png" alt="D&D AI Screenshot 1" width="45%" style="display: inline-block; margin-right: 10px;"/>
+  <img src="imgs/Screenshot_D&D_AI2.png" alt="D&D AI Screenshot 2" width="45%" style="display: inline-block;"/>
+</div>
+
 ---
 
 ## ⚙️ Architecture

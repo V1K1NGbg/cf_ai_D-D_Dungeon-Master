@@ -26,24 +26,6 @@
 
     <div class="game-layout">
       <div id="log"></div>
-
-      <div id="characterPanel" class="character-panel">
-        <div class="panel-header">
-          <h3>⚔️ Party & Combat Status</h3>
-          <button id="toggleCharPanel" class="toggle-btn" aria-label="Collapse panel"
-            title="Toggle character panel">−</button>
-        </div>
-        <div class="panel-content">
-          <div class="party-section">
-            <h4>🏛️ Party Members</h4>
-            <div id="characterInfo"></div>
-          </div>
-          <div class="combat-section">
-            <h4>⚔️ Combat Information</h4>
-            <div id="combatInfo"></div>
-          </div>
-        </div>
-      </div>
     </div>
 
     <div class="action-section">
@@ -52,6 +34,24 @@
     </div>
     <p class="help-text">Type 'end' to end the story. Try `stats`, `look`, and `inventory`. 🧝‍♂️ Send the link and
       Story Session name to your friends to join.</p>
+
+    <div id="characterPanel" class="character-panel">
+      <div class="panel-header">
+        <h3>⚔️ Party & Combat Status</h3>
+        <button id="toggleCharPanel" class="toggle-btn" aria-label="Collapse panel"
+          title="Toggle character panel">−</button>
+      </div>
+      <div class="panel-content">
+        <div class="party-section">
+          <h4>🏛️ Party Members</h4>
+          <div id="characterInfo"></div>
+        </div>
+        <div class="combat-section">
+          <h4>⚔️ Combat Information</h4>
+          <div id="combatInfo"></div>
+        </div>
+      </div>
+    </div>
 
     <script src="./script.js"></script>
 </body>

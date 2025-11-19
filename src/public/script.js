@@ -92,7 +92,8 @@ function showJoinPrompt() {
   const characterPanel = document.getElementById('characterPanel');
   if (characterPanel) {
     characterPanel.style.display = 'none';
-    console.log('🙈 Character panel hidden');
+    characterPanel.classList.remove('visible');
+    console.log('🙈 Character panel hidden and visible class removed');
   }
 
   currentPlayerId = '';
@@ -117,7 +118,8 @@ function enableChat() {
   const characterPanel = document.getElementById('characterPanel');
   if (characterPanel) {
     characterPanel.style.display = 'flex';
-    console.log('✅ Character panel set to display: flex');
+    characterPanel.classList.add('visible'); // Add visible class for CSS control
+    console.log('✅ Character panel set to display: flex and marked as visible');
   } else {
     console.error('❌ Character panel element not found!');
   }
@@ -659,37 +661,20 @@ function updateCharacterPanel(players, combat) {
   if (combat) {
     console.log('⚔️ Combat data:', combat);
     if (combat.active && combat.enemies && combat.enemies.length > 0) {
-      const aliveEnemies = combat.enemies.filter(e => e.hp > 0);
-      const deadEnemies = combat.enemies.filter(e => e.hp <= 0);
-
       combatInfo.innerHTML = `
         <div class="combat-status combat-active">
           ⚔️ Combat is Active!
         </div>
-        ${aliveEnemies.length > 0 ? `
-        <div class="enemy-list">
-          <div style="margin-bottom: 8px; font-weight: bold; color: #d4af37;">👹 Active Enemies:</div>
-          ${aliveEnemies.map(enemy => `
-            <div class="enemy-item">
-              <span class="enemy-name">${enemy.name}</span>
-              <span class="enemy-hp">${enemy.hp} HP</span>
-            </div>
-          `).join('')}
+      `;
+    } else if (combat.active) {
+      // Combat is active but no enemies (maybe they were all defeated)
+      combatInfo.innerHTML = `
+        <div class="combat-status combat-active">
+          🏆 Combat Concluded
         </div>
-        ` : ''}
-        ${deadEnemies.length > 0 ? `
-        <div style="margin-top: 10px; padding: 8px; background: rgba(0, 0, 0, 0.2); border-radius: 4px;">
-          <div style="font-size: 0.9rem; color: #888;">💀 Defeated: ${deadEnemies.map(e => e.name).join(', ')}</div>
+        <div style="text-align: center; color: #d4af37; padding: 20px; font-style: italic;">
+          All enemies have been defeated! Well done, adventurers.
         </div>
-        ` : ''}
-        ${combat.turnOrder && combat.turnOrder.length > 0 ? `
-        <div style="margin-top: 15px; padding: 10px; background: rgba(212, 175, 55, 0.1); border-radius: 6px; border: 1px solid #d4af37;">
-          <strong style="color: #d4af37;">🎯 Turn Order:</strong><br>
-          <span style="color: #f4e4bc;">${combat.turnOrder.map((name, index) =>
-        index === combat.currentTurnIndex ? `<strong style="color: #d4af37;">${name}</strong>` : name
-      ).join(' → ')}</span>
-        </div>
-        ` : ''}
       `;
     } else {
       combatInfo.innerHTML = `
@@ -702,13 +687,13 @@ function updateCharacterPanel(players, combat) {
       `;
     }
   } else {
-    console.log('⚔️ No combat data');
+    console.log('⚔️ No combat data provided');
     combatInfo.innerHTML = `
       <div class="combat-status combat-inactive">
         ✌️ No Active Combat
       </div>
       <div style="text-align: center; color: #888; padding: 20px; font-style: italic;">
-        Waiting for game data...
+        Ready for adventure...
       </div>
     `;
   }
@@ -795,7 +780,49 @@ function refreshCharacterPanel() {
   forceUpdateCharacterPanel();
 }
 
-// Test function to check panel visibility
+// Test function to manually trigger combat for testing
+function testCombat() {
+  console.log('🧪 Testing combat manually...');
+  const testCombatData = {
+    active: true,
+    turnOrder: ['Test Player', 'Goblin', 'Orc'],
+    currentTurnIndex: 1,
+    enemies: [
+      { name: 'Goblin', hp: 7 },
+      { name: 'Orc', hp: 15 }
+    ]
+  };
+
+  const testPlayers = [
+    { id: 'test1', name: 'Test Player', hp: 18, maxHp: 20, inventory: ['sword', 'potion'] }
+  ];
+
+  console.log('🧪 Calling updateCharacterPanel with test data...');
+  updateCharacterPanel(testPlayers, testCombatData);
+
+  // Also ensure panel is visible
+  const panel = document.getElementById('characterPanel');
+  if (panel) {
+    panel.style.display = 'flex';
+    panel.classList.add('visible');
+    document.body.classList.add('game-active');
+    console.log('✅ Test combat data applied and panel made visible');
+  }
+
+  return true;
+}
+
+// Make test functions available globally
+window.testCharacterPanel = testCharacterPanel;
+window.testCombat = testCombat;
+window.refreshCharacterPanel = refreshCharacterPanel;
+window.updateCharacterPanel = updateCharacterPanel;
+
+console.log('🧪 Debug functions available:');
+console.log('  - testCombat() - Test with fake combat data');
+console.log('  - refreshCharacterPanel() - Force refresh panel');
+console.log('  - updateCharacterPanel() - Manual update call');
+
 function testCharacterPanel() {
   const panel = document.getElementById('characterPanel');
   if (!panel) {
@@ -836,14 +863,6 @@ function testCharacterPanel() {
 
   return true;
 }
-
-// Make test functions available globally
-window.testCharacterPanel = testCharacterPanel;
-window.refreshCharacterPanel = refreshCharacterPanel;
-window.updateCharacterPanel = updateCharacterPanel;
-
-console.log('🧪 Debug functions available: testCharacterPanel(), refreshCharacterPanel(), updateCharacterPanel()');
-console.log('🔧 To test: Type testCharacterPanel() in the console to check panel visibility');
 
 // Initialization and event listeners
 (async () => {

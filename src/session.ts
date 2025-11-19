@@ -54,6 +54,12 @@ interface DungeonMasterOptions {
   backoffMs?: number;
 }
 
+interface CombatDetectionResult {
+  combatDetected: boolean;
+  enemies: { name: string; hp: number }[];
+  triggers: string[];
+}
+
 interface NarrationResult {
   text: string;
   thinking: string;
@@ -191,8 +197,18 @@ export class DungeonMasterService {
     // Collapse recent state into a compact primer for the AI model.
     const recent = context.messages.map(m => `${m.actor === "DM" ? "DM" : m.actor}: ${m.content}`).join("\n");
     const roster = context.players.map(p => `${p.name}(HP:${p.hp})`).join(", ");
-    const enemies = context.combat.enemies.map(e => `${e.name}(HP:${e.hp})`).join(", ");
-    return `Recent:\n${recent}\nPlayers: ${roster || "None"}\nEnemies: ${enemies || "None"}\nCombat active: ${context.combat.active}`;
+    const aliveEnemies = context.combat.enemies.filter(e => e.hp > 0);
+    const deadEnemies = context.combat.enemies.filter(e => e.hp <= 0);
+    const enemies = aliveEnemies.map(e => `${e.name}(HP:${e.hp})`).join(", ");
+    const defeated = deadEnemies.length > 0 ? ` | Defeated: ${deadEnemies.map(e => e.name).join(", ")}` : "";
+    
+    let combatStatus = `Combat active: ${context.combat.active}`;
+    if (context.combat.active && context.combat.turnOrder.length > 0) {
+      const currentActor = context.combat.turnOrder[context.combat.currentTurnIndex] || "Unknown";
+      combatStatus += ` | Current turn: ${currentActor}`;
+    }
+    
+    return `Recent:\n${recent}\nPlayers: ${roster || "None"}\nEnemies: ${enemies || "None"}${defeated}\n${combatStatus}`;
   }
 
   private systemPrompt(): string {
@@ -202,10 +218,13 @@ export class DungeonMasterService {
       "Narrate vividly but concisely, respecting turn order and mechanics. Keep it short, no more than 5 paragraphs.",
       "Simulate dice rolls using standard notation (d20, 2d6+3).",
       "Show reasoning and rolls inside <thinking> ... </thinking>.",
+      "CRITICAL: When introducing enemies in combat, specify them clearly: 'A Goblin (7 HP) appears' or 'Two Orcs emerge to attack'.",
       "CRITICAL: When a character takes damage, always use the exact phrase '[Character Name] takes [X] damage' or '[Character Name] suffers [X] damage' to ensure HP tracking works properly.",
+      "CRITICAL: When enemies take damage, use clear phrases: 'deals [X] damage to the Goblin' or 'the Orc takes [X] damage'.",
       "CRITICAL: When a character heals, always use phrases like '[Character Name] heals [X] HP' or '[Character Name] recovers [X] health'.",
       "CRITICAL: When a character gains items, use phrases like '[Character Name] finds a sword' or '[Character Name] receives a potion' to track inventory.",
       "CRITICAL: When a character uses items, use phrases like '[Character Name] uses a potion' or '[Character Name] drinks a healing potion'.",
+      "CRITICAL: When combat begins, mention 'roll initiative' or 'combat begins' to trigger the combat tracking system.",
       "Final response must include clear outcomes: hit/miss, damage, conditions, or consequences. Always specify exact damage numbers.",
       "Include item discoveries, loot, and inventory changes in your narration using the phrases above.",
       "Do not alter player stats directly; only describe narrative outcomes with precise damage amounts and item interactions.",
@@ -251,23 +270,211 @@ export class DungeonMasterService {
  */
 export class EffectResolver {
   apply(dmText: string, players: Map<string, Player>, combat: CombatState) {
+    // Detect and initialize combat scenarios
+    this.detectCombatScenarios(dmText, players, combat);
+    
+    // Apply damage and effects
     this.applyEnemyDamage(dmText, combat);
     this.applyPlayerDamage(dmText, players);
     this.applyPlayerHealing(dmText, players);
     this.applyInventoryChanges(dmText, players);
+    
+    // Check if combat should end
+    this.checkCombatEnd(combat);
+  }
+
+  private detectCombatScenarios(text: string, players: Map<string, Player>, combat: CombatState) {
+    // Skip if combat is already active
+    if (combat.active) {
+      return;
+    }
+
+    // Look for combat initiation phrases
+    const combatTriggers = [
+      /(?:attack|combat|fight|battle|engage)(?:s|ing)?/i,
+      /(?:enemy|enemies|monster|monsters|creature|creatures|foe|foes)\s+(?:appear|emerges?|attack|charge)/i,
+      /(?:roll|make)\s+(?:initiative|an?\s+initiative)/i,
+      /initiative\s+(?:roll|order)/i,
+      /(?:a|the)\s+(?:goblin|orc|skeleton|dragon|wolf|spider|bandit|guard)(?:s)?\s+(?:attack|charge|leap|strike)/i
+    ];
+
+    const hasCombatTrigger = combatTriggers.some(pattern => pattern.test(text));
+    if (!hasCombatTrigger) {
+      return;
+    }
+
+    // Look for enemy mentions to initialize combat
+    const enemyPatterns = [
+      // Basic enemy types with optional HP mentions
+      /(?:a|the|\d+)\s+(goblin|orc|skeleton|dragon|wolf|spider|bandit|guard|troll|ogre|zombie|ghoul|wraith|lich|demon|devil|giant|minotaur|basilisk|manticore|harpy|medusa|cyclops|hydra|griffin|pegasus|unicorn|phoenix|roc|kraken|leviathan|behemoth|colossus)(?:s)?(?:\s+\((\d+)\s+HP\))?/gi,
+      // Generic enemy with HP
+      /(?:a|the|\d+)\s+([A-Za-z][A-Za-z\s]*?)\s+\((\d+)\s+HP\)/gi,
+      // Enemy appears/emerges patterns
+      /(?:a|the|\d+)\s+([A-Za-z][A-Za-z\s]*?)\s+(?:appears?|emerges?|materializes?|attacks?)/gi
+    ];
+
+    const enemies: { name: string; hp: number }[] = [];
+    const foundEnemies = new Set<string>();
+
+    for (const pattern of enemyPatterns) {
+      const matches = text.matchAll(pattern);
+      for (const match of matches) {
+        let enemyName: string;
+        let enemyHp: number;
+
+        if (match[2] && !isNaN(parseInt(match[2], 10))) {
+          // Pattern with explicit HP
+          enemyName = match[1].trim();
+          enemyHp = parseInt(match[2], 10);
+        } else {
+          // Pattern without explicit HP, use defaults
+          enemyName = match[1].trim();
+          enemyHp = this.getDefaultEnemyHp(enemyName);
+        }
+
+        // Clean up enemy name
+        enemyName = enemyName.replace(/^(a|an|the)\s+/i, '');
+        enemyName = enemyName.toLowerCase().split(' ').map(word => 
+          word.charAt(0).toUpperCase() + word.slice(1)
+        ).join(' ');
+
+        // Avoid duplicates
+        const enemyKey = enemyName.toLowerCase();
+        if (!foundEnemies.has(enemyKey) && enemyName.length > 1) {
+          foundEnemies.add(enemyKey);
+          enemies.push({ name: enemyName, hp: enemyHp });
+        }
+      }
+    }
+
+    // Initialize combat if enemies were found
+    if (enemies.length > 0) {
+      console.log('[Combat Detected] Initializing combat with enemies:', enemies);
+      
+      combat.active = true;
+      combat.enemies = enemies;
+      
+      // Create turn order: players first, then enemies
+      const playerNames = Array.from(players.values()).map(p => p.name);
+      combat.turnOrder = [...playerNames, ...enemies.map(e => e.name)];
+      combat.currentTurnIndex = 0;
+      
+      if (IS_LOCAL_DEV) {
+        console.log('[Combat Started]', {
+          enemies: combat.enemies,
+          turnOrder: combat.turnOrder
+        });
+      }
+    }
+  }
+
+  private getDefaultEnemyHp(enemyName: string): number {
+    const name = enemyName.toLowerCase();
+    
+    // Basic enemy HP mapping
+    const hpMap: Record<string, number> = {
+      'goblin': 7,
+      'orc': 15,
+      'skeleton': 13,
+      'zombie': 22,
+      'wolf': 11,
+      'spider': 4,
+      'bandit': 11,
+      'guard': 11,
+      'troll': 84,
+      'ogre': 59,
+      'dragon': 200,
+      'lich': 135,
+      'demon': 85,
+      'devil': 85,
+      'giant': 138,
+      'minotaur': 76,
+      'basilisk': 52,
+      'harpy': 38,
+      'cyclops': 138,
+      'hydra': 172
+    };
+    
+    return hpMap[name] || 15; // Default HP for unknown enemies
+  }
+
+  private checkCombatEnd(combat: CombatState) {
+    if (!combat.active) {
+      return;
+    }
+    
+    // End combat if all enemies are dead
+    const aliveEnemies = combat.enemies.filter(e => e.hp > 0);
+    if (aliveEnemies.length === 0) {
+      console.log('[Combat Ended] All enemies defeated');
+      combat.active = false;
+      combat.enemies = [];
+      combat.turnOrder = [];
+      combat.currentTurnIndex = 0;
+    }
   }
 
   private applyEnemyDamage(text: string, combat: CombatState) {
-    // Match phrases like "deals 5 damage to Goblin" and clamp HP at zero.
-    const dmgMatches = text.matchAll(/deals\s+(\d+)\s+damage\s+to\s+([A-Za-z ']+)/gi);
-    for (const match of dmgMatches) {
-      const dmg = parseInt(match[1], 10);
-      const enemyName = match[2]?.trim().toLowerCase();
-      const enemy = combat.enemies.find(e => e.name.toLowerCase() === enemyName);
-      if (enemy && Number.isFinite(dmg)) {
-        enemy.hp = Math.max(0, enemy.hp - dmg);
+    if (!combat.active || combat.enemies.length === 0) {
+      return;
+    }
+
+    // Enhanced damage patterns for enemies
+    const damagePatterns = [
+      // "deals 5 damage to Goblin"
+      /deals\s+(\d+)\s+(?:points?\s+of\s+)?damage\s+to\s+(?:the\s+)?([A-Za-z][A-Za-z ']*)/gi,
+      // "Goblin takes 5 damage"
+      /(?:the\s+)?([A-Za-z][A-Za-z ']*?)\s+takes?\s+(\d+)\s+(?:points?\s+of\s+)?damage/gi,
+      // "5 damage to the Goblin"
+      /(\d+)\s+(?:points?\s+of\s+)?damage\s+to\s+(?:the\s+)?([A-Za-z][A-Za-z ']*)/gi,
+      // "Goblin suffers 5 damage"
+      /(?:the\s+)?([A-Za-z][A-Za-z ']*?)\s+suffers?\s+(\d+)\s+(?:points?\s+of\s+)?damage/gi,
+      // "strikes the Goblin for 5 damage"
+      /strikes?\s+(?:the\s+)?([A-Za-z][A-Za-z ']*?)\s+for\s+(\d+)\s+damage/gi
+    ];
+
+    for (const pattern of damagePatterns) {
+      const matches = text.matchAll(pattern);
+      for (const match of matches) {
+        let enemyName: string, dmg: number;
+        
+        if (pattern.source.startsWith('(\\d+)') || pattern.source.includes('deals')) {
+          // Patterns: "5 damage to Goblin" or "deals 5 damage to Goblin"
+          dmg = parseInt(match[1], 10);
+          enemyName = match[2]?.trim();
+        } else {
+          // Patterns: "Goblin takes 5 damage"
+          enemyName = match[1]?.trim();
+          dmg = parseInt(match[2], 10);
+        }
+        
+        if (enemyName && Number.isFinite(dmg) && dmg > 0) {
+          const enemy = this.findEnemyByName(combat.enemies, enemyName);
+          if (enemy) {
+            const oldHp = enemy.hp;
+            enemy.hp = Math.max(0, enemy.hp - dmg);
+            if (IS_LOCAL_DEV) {
+              console.log(`[Enemy Damage] ${enemy.name}: ${oldHp} → ${enemy.hp} (took ${dmg} damage)`);
+            }
+          }
+        }
       }
     }
+  }
+
+  private findEnemyByName(enemies: { name: string; hp: number }[], searchName: string): { name: string; hp: number } | undefined {
+    const cleanSearchName = searchName.toLowerCase().replace(/^(the|a|an)\s+/, '').trim();
+    
+    // First try exact match
+    let enemy = enemies.find(e => e.name.toLowerCase() === cleanSearchName);
+    if (enemy) return enemy;
+    
+    // Then try partial match
+    enemy = enemies.find(e => e.name.toLowerCase().includes(cleanSearchName));
+    if (enemy) return enemy;
+    
+    // Finally try reverse partial match (search name contains enemy name)
+    return enemies.find(e => cleanSearchName.includes(e.name.toLowerCase()));
   }
 
   private applyPlayerDamage(text: string, players: Map<string, Player>) {
@@ -617,16 +824,26 @@ export class SessionCoordinator {
     if (!narration.degraded) {
       // Log player states before damage application
       if (IS_LOCAL_DEV) {
-        console.log('[Pre-damage] Player states:', this.getPlayers().map(p => `${p.name}: ${p.hp}HP`));
+        console.log('[Pre-effect] Player states:', this.getPlayers().map(p => `${p.name}: ${p.hp}HP`));
+        console.log('[Pre-effect] Combat state:', this.combat);
         console.log('[DM Response]:', narration.text);
       }
       
       // Only mutate HP totals if the AI response is trustworthy.
       this.effects.apply(narration.text, this.players, this.combat);
       
-      // Log player states after damage application
+      // Advance turn if in combat and this was a combat action
+      if (this.combat.active && this.isPlayerTurn(player.id)) {
+        this.nextTurn();
+        if (IS_LOCAL_DEV) {
+          console.log(`[Turn Advanced] Now: ${this.getCurrentTurn()}`);
+        }
+      }
+      
+      // Log states after effect application
       if (IS_LOCAL_DEV) {
-        console.log('[Post-damage] Player states:', this.getPlayers().map(p => `${p.name}: ${p.hp}HP`));
+        console.log('[Post-effect] Player states:', this.getPlayers().map(p => `${p.name}: ${p.hp}HP`));
+        console.log('[Post-effect] Combat state:', this.combat);
       }
     }
 
@@ -719,5 +936,18 @@ export class SessionCoordinator {
   nextTurn() {
     if (!this.combat.active) return;
     this.combat.currentTurnIndex = (this.combat.currentTurnIndex + 1) % this.combat.turnOrder.length;
+  }
+
+  getCurrentTurn(): string | null {
+    if (!this.combat.active || this.combat.turnOrder.length === 0) {
+      return null;
+    }
+    return this.combat.turnOrder[this.combat.currentTurnIndex] || null;
+  }
+
+  isPlayerTurn(playerId: string): boolean {
+    const player = this.players.get(playerId);
+    if (!player) return false;
+    return this.getCurrentTurn() === player.name;
   }
 }
